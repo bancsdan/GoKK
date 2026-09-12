@@ -223,10 +223,6 @@ vhs demo.tape                                             # re-render assets/dem
 
 Standard library only; no third-party dependencies.
 
-## 🚫 Non-goals
-
-No trip planning, ticketing, maps or TUI. Budapest (BKK) only.
-
 ---
 
 <div align="center">
