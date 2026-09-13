@@ -243,7 +243,7 @@ func (c *Client) getEnvelope(ctx context.Context, path string, q url.Values, out
 	if err != nil {
 		return time.Time{}, netErr(err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if debug {
 		fmt.Fprintln(os.Stderr, "   ", resp.Status)
 	}

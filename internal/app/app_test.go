@@ -29,7 +29,7 @@ type fakeFutar struct {
 func (f *fakeFutar) handler(t *testing.T) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Query().Get("key") != "k3y" {
-			http.Error(w, "Invalid API key. Please register at https://opendata.bkk.hu", 401)
+			http.Error(w, "Invalid API key. Please register at https://opendata.bkk.hu", http.StatusUnauthorized)
 			return
 		}
 		env := map[string]any{"code": 200, "currentTime": f.now.UnixMilli(), "status": "OK", "text": "OK", "version": 3}

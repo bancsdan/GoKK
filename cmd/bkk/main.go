@@ -118,7 +118,7 @@ func parseArgs(args []string) (*app.Options, error) {
 			pos = append(pos, arg)
 		}
 	}
-	if len(pos) < 2 && !(o.List && len(pos) == 1) {
+	if len(pos) == 0 || (len(pos) < 2 && !o.List) {
 		return nil, &app.UsageError{Msg: usage}
 	}
 	o.Route = pos[0]

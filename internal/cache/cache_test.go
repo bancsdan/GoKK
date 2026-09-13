@@ -31,9 +31,6 @@ func TestKeysAreSafeAndDistinct(t *testing.T) {
 	if a == b {
 		t.Fatal("distinct keys must map to distinct files")
 	}
-	if c.path("../etc") != c.path("../etc") {
-		t.Fatal("path must be deterministic")
-	}
 	for _, p := range []string{a, b, c.path("../../etc/passwd")} {
 		if got := p[len("/x/"):]; got == "" || got[0] == '.' {
 			t.Fatalf("unsafe file name %q", got)

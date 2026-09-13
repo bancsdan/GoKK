@@ -1,0 +1,85 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          check-latest: true
+      - name: gofmt
+        run: |
+          out=$(gofmt -l .)
+          if [ -n "$out" ]; then echo "unformatted files:"; echo "$out"; exit 1; fi
+      - run: go vet ./...
+      - run: go test -race -count=1 ./...
+      - run: go build ./cmd/bkk
+
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          check-latest: true
+      - uses: golangci/golangci-lint-action@v8
+        with:
+          version: latest
+
+  demo:
+    name: Regenerate demo GIF
+    # Needs the BKK_API_KEY secret and push rights, so only on main.
+    if: github.event_name != 'pull_request'
+    needs: [test, lint]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      BKK_API_KEY: ${{ secrets.BKK_API_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          check-latest: true
+      - name: Install bkk and zsh (the tape's shell)
+        run: |
+          go install ./cmd/bkk
+          echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
+          sudo apt-get update -q && sudo apt-get install -y -q zsh
+      - name: Warm the cache and check for live departures
+        id: warm
+        run: |
+          out=$(bkk 155 viranyos)
+          echo "$out"
+          if echo "$out" | grep -q "No upcoming"; then
+            echo "live=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::No departures right now; keeping the existing GIF."
+          else
+            echo "live=true" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Record demo.tape
+        if: steps.warm.outputs.live == 'true'
+        uses: charmbracelet/vhs-action@v2
+        with:
+          path: demo.tape
+      - name: Commit assets/demo.gif
+        if: steps.warm.outputs.live == 'true'
+        uses: stefanzweifel/git-auto-commit-action@v5
+        with:
+          commit_message: "chore(demo): regenerate demo gif"
+          file_pattern: assets/demo.gif

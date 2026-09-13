@@ -80,7 +80,7 @@ func (c *Cache) Store(key string, v any) error {
 	_, werr := tmp.Write(b)
 	cerr := tmp.Close()
 	if werr != nil || cerr != nil {
-		os.Remove(tmp.Name())
+		_ = os.Remove(tmp.Name())
 		if werr != nil {
 			return werr
 		}
