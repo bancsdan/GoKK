@@ -10,6 +10,7 @@ every direction in under a second. No app, no browser, no map.
 [![CI](https://github.com/bancsdan/GoKK/actions/workflows/ci.yml/badge.svg)](https://github.com/bancsdan/GoKK/actions/workflows/ci.yml)
 [![Go](https://img.shields.io/badge/Go-1.22+-00ADD8?logo=go&logoColor=white)](https://go.dev)
 [![Zero deps](https://img.shields.io/badge/dependencies-none-success)](go.mod)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 [![Data: BKK FUTÁR](https://img.shields.io/badge/data-BKK%20FUT%C3%81R%20OpenData-1d5fa7)](https://opendata.bkk.hu)
 
 <img src="assets/demo.gif" alt="bkk demo: real-time departures for route 155 at Virányos út, grouped by direction" width="720">
@@ -292,5 +293,5 @@ Standard library only; no third-party dependencies.
 ---
 
 <div align="center">
-Data © <a href="https://opendata.bkk.hu">BKK FUTÁR OpenData</a>. Not affiliated with BKK.
+<a href="LICENSE">MIT licensed</a>. Data © <a href="https://opendata.bkk.hu">BKK FUTÁR OpenData</a>. Not affiliated with BKK.
 </div>
