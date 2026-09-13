@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"strings"
 	"time"
+
+	"github.com/bancsdan/GoKK/internal/match"
 )
 
 const (
@@ -58,6 +60,46 @@ func (a *App) render(stopName, route string, groups []Group, o Options) {
 		}
 		fmt.Fprintln(w, strings.TrimRight(sb.String(), " "))
 	}
+}
+
+// ArrivalsJSON is the machine-readable arrivals output.
+type ArrivalsJSON struct {
+	Stop        string          `json:"stop"`
+	StopIDs     []string        `json:"stopIds"`
+	Route       string          `json:"route"`
+	GeneratedAt time.Time       `json:"generatedAt"`
+	Directions  []DirectionJSON `json:"directions"`
+}
+
+// DirectionJSON is one direction's departures.
+type DirectionJSON struct {
+	Direction  string          `json:"direction"`
+	Headsign   string          `json:"headsign"`
+	Departures []DepartureJSON `json:"departures"`
+}
+
+// DepartureJSON is one departure. InSeconds counts from GeneratedAt and is
+// clamped at zero; Live is false for schedule-only entries.
+type DepartureJSON struct {
+	At        time.Time `json:"at"`
+	InSeconds int       `json:"inSeconds"`
+	Live      bool      `json:"live"`
+}
+
+func arrivalsJSON(cand match.Candidate, route string, now time.Time, groups []Group) ArrivalsJSON {
+	out := ArrivalsJSON{Stop: cand.Name, StopIDs: cand.IDs, Route: route, GeneratedAt: now, Directions: []DirectionJSON{}}
+	for _, g := range groups {
+		d := DirectionJSON{Direction: g.Direction, Headsign: g.Headsign, Departures: []DepartureJSON{}}
+		for _, ar := range g.Arrivals {
+			in := int(ar.At.Sub(now).Seconds())
+			if in < 0 {
+				in = 0
+			}
+			d.Departures = append(d.Departures, DepartureJSON{At: ar.At, InSeconds: in, Live: ar.Live})
+		}
+		out.Directions = append(out.Directions, d)
+	}
+	return out
 }
 
 // formatArrival renders time-to-arrival like "42s", "5m42s", "1h3m11s" or

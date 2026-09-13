@@ -24,6 +24,8 @@ every direction in under a second. No app, no browser, no map.
 - **Fuzzy stops.** `viranyos` finds *Virányos út*, `szell kalman` finds *Széll Kálmán tér M*. Accents optional.
 - **Live data.** Real-time predictions from the BKK FUTÁR feed; schedule-only entries are marked with `~`.
 - **Fast.** Route and stop data is cached for a day, so after the first run only one network call is made.
+- **Aliases.** `bkk home` expands to your usual route and stop; bare `bkk` runs your default.
+- **Scriptable.** `--json` for status bars, launchers and scripts.
 - **Zero dependencies.** Standard library only, single binary, `go install`-able.
 
 ## 🏁 Quick start
@@ -80,8 +82,9 @@ route you have already queried) work without a key.
 ## 🧭 Usage
 
 ```
-bkk <route> <stop-query> [-c N] [-t] [-r]
-bkk <route> -l
+bkk <route> <stop-query> [-c N] [-t] [-j] [-r]
+bkk <route> -l [-j]
+bkk <alias> [flags]
 ```
 
 | Argument / flag   | Meaning                                                                 |
@@ -90,8 +93,10 @@ bkk <route> -l
 | `<stop-query>`    | Free-text stop name, accent-insensitive and fuzzy                       |
 | `-c`, `--count N` | Departures to show per direction (default 1)                            |
 | `-t`, `--times`   | Also print clock times: `5m42s (22:41)`                                 |
+| `-j`, `--json`    | Print JSON instead of text (see below)                                  |
 | `-l`, `--list`    | List the route's stops by direction instead of arrivals                 |
 | `-r`, `--refresh` | Ignore the cached route and stop data                                   |
+| `-a`, `--aliases` | Show the configured aliases                                             |
 | `-h`, `--help`    | Show help                                                               |
 
 Flags may appear anywhere: `bkk 155 viranyos -c 3` works.
@@ -174,6 +179,66 @@ No upcoming 155 departures in the next 90 min.
 Directions are labelled with the trip headsign, the terminus the vehicle is
 heading to. A stop served in one direction only shows one group. Output is
 coloured on a terminal and plain when piped or when `NO_COLOR` is set.
+
+### Aliases
+
+Put your usual lookups in `~/.config/bkk/config` (or
+`$XDG_CONFIG_HOME/bkk/config`), one per line as `name = args`. Lines
+starting with `#` are comments.
+
+```ini
+home    = 155 viranyos -c 3
+work    = 4 moricz
+default = home
+```
+
+Then `bkk home` runs `bkk 155 viranyos -c 3`, and plain `bkk` runs the
+`default` alias. Flags after an alias override the alias's own, so
+`bkk home -c 1 -t` shows one departure with clock times. `bkk -a` lists
+what is configured.
+
+### JSON output
+
+`-j` prints one JSON document, for scripts, launchers and status bars.
+Times are RFC 3339, `inSeconds` counts from `generatedAt` (the server's
+clock), and `live` is `false` for schedule-only entries. Colour is never
+emitted in JSON mode.
+
+```sh
+$ bkk 155 viranyos -c 2 -j
+{
+  "stop": "Virányos út",
+  "stopIds": ["BKK_F02464", "BKK_F02465"],
+  "route": "155",
+  "generatedAt": "2026-09-13T08:41:07+02:00",
+  "directions": [
+    {
+      "direction": "0",
+      "headsign": "Fácános tér",
+      "departures": [
+        { "at": "2026-09-13T08:44:19+02:00", "inSeconds": 192, "live": true },
+        { "at": "2026-09-13T08:48:07+02:00", "inSeconds": 420, "live": true }
+      ]
+    },
+    {
+      "direction": "1",
+      "headsign": "Széll Kálmán tér M",
+      "departures": [
+        { "at": "2026-09-13T08:46:07+02:00", "inSeconds": 300, "live": false }
+      ]
+    }
+  ]
+}
+```
+
+`bkk 155 -l -j` prints the stop list the same way: an array of routes, each
+with `directions[].from`, `to` and `stops[]` carrying stop `id` and `name`.
+No upcoming departures gives `"directions": []`; errors still go to stderr
+as text with exit status 1. A one-liner for a status bar:
+
+```sh
+bkk home -j | jq -r '.directions[] | "\(.headsign[:12]) \(.departures[0].inSeconds / 60 | floor)m"'
+```
 
 ## ⚙️ How it works
 

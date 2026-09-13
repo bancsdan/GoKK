@@ -4,6 +4,7 @@ package app
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -24,6 +25,7 @@ type Options struct {
 	ShowClock bool   // append HH:MM after each minutes value
 	Refresh   bool   // bypass the reference-data cache
 	List      bool   // list the route's stops instead of arrivals
+	JSON      bool   // machine-readable output instead of text
 	Window    time.Duration
 }
 
@@ -54,7 +56,15 @@ func (a *App) Run(ctx context.Context, o Options) error {
 		return err
 	}
 	if o.List {
-		return a.listStops(ctx, routes, o.Refresh)
+		lists, err := a.stopLists(ctx, routes, o.Refresh)
+		if err != nil {
+			return err
+		}
+		if o.JSON {
+			return a.writeJSON(lists)
+		}
+		a.renderLists(lists)
+		return nil
 	}
 	stops, dirHeadsigns, err := a.routeStops(ctx, routes, o.Refresh)
 	if err != nil {
@@ -77,8 +87,17 @@ func (a *App) Run(ctx context.Context, o Options) error {
 	if label == "" {
 		label = o.Route
 	}
+	if o.JSON {
+		return a.writeJSON(arrivalsJSON(cand, label, arr.CurrentTime, groups))
+	}
 	a.render(cand.Name, label, groups, o)
 	return nil
+}
+
+func (a *App) writeJSON(v any) error {
+	enc := json.NewEncoder(a.Out)
+	enc.SetIndent("", "  ")
+	return enc.Encode(v)
 }
 
 // resolveRoutes maps a public short name to every route ID carrying it
@@ -168,15 +187,36 @@ func (a *App) details(ctx context.Context, r futar.Route, refresh bool) (*futar.
 	return &rd, nil
 }
 
-// listStops prints the route name, then for each direction an
-// "origin → destination" line and its numbered stops in travel order. The longest
+// RouteStops is one route's stops per direction, for -l.
+type RouteStops struct {
+	Route      string           `json:"route"`
+	RouteID    string           `json:"routeId"`
+	Directions []DirectionStops `json:"directions"`
+}
+
+// DirectionStops is one direction's stops in travel order. The longest
 // variant of a direction is the backbone; stops only served by shorter or
 // branch variants are appended after it.
-func (a *App) listStops(ctx context.Context, routes []futar.Route, refresh bool) error {
+type DirectionStops struct {
+	Direction string     `json:"direction"`
+	From      string     `json:"from"`
+	To        string     `json:"to"`
+	Stops     []StopInfo `json:"stops"`
+}
+
+// StopInfo is a stop platform.
+type StopInfo struct {
+	ID   string `json:"id"`
+	Name string `json:"name"`
+}
+
+// stopLists builds the -l data for every route sharing the short name.
+func (a *App) stopLists(ctx context.Context, routes []futar.Route, refresh bool) ([]RouteStops, error) {
+	var out []RouteStops
 	for _, r := range routes {
 		rd, err := a.details(ctx, r, refresh)
 		if err != nil {
-			return err
+			return nil, err
 		}
 		type dir struct {
 			headsign string
@@ -206,34 +246,48 @@ func (a *App) listStops(ctx context.Context, routes []futar.Route, refresh bool)
 				}
 			}
 		}
-		label := r.ShortName
-		if label == "" {
-			label = r.ID
-		}
-		fmt.Fprintln(a.Out, a.paint(ansiBold, label))
 		name := func(id string) string {
 			if n := rd.Stops[id].Name; n != "" {
 				return n
 			}
 			return id
 		}
+		rs := RouteStops{Route: r.ShortName, RouteID: r.ID}
+		if rs.Route == "" {
+			rs.Route = r.ID
+		}
 		for _, k := range order {
 			d := byDir[k]
 			if len(d.stopIDs) == 0 {
 				continue
 			}
-			from, to := name(d.stopIDs[0]), d.headsign
-			if to == "" {
-				to = name(d.stopIDs[len(d.stopIDs)-1])
+			ds := DirectionStops{Direction: k, From: name(d.stopIDs[0]), To: d.headsign}
+			if ds.To == "" {
+				ds.To = name(d.stopIDs[len(d.stopIDs)-1])
 			}
-			fmt.Fprintln(a.Out, a.paint(ansiCyan+ansiBold, from+" → "+to))
-			width := len(fmt.Sprint(len(d.stopIDs)))
-			for i, id := range d.stopIDs {
-				fmt.Fprintf(a.Out, "  %*d. %s\n", width, i+1, name(id))
+			for _, id := range d.stopIDs {
+				ds.Stops = append(ds.Stops, StopInfo{ID: id, Name: name(id)})
+			}
+			rs.Directions = append(rs.Directions, ds)
+		}
+		out = append(out, rs)
+	}
+	return out, nil
+}
+
+// renderLists prints the route name, then for each direction an
+// "origin → destination" line and its numbered stops.
+func (a *App) renderLists(lists []RouteStops) {
+	for _, rs := range lists {
+		fmt.Fprintln(a.Out, a.paint(ansiBold, rs.Route))
+		for _, d := range rs.Directions {
+			fmt.Fprintln(a.Out, a.paint(ansiCyan+ansiBold, d.From+" → "+d.To))
+			width := len(fmt.Sprint(len(d.Stops)))
+			for i, st := range d.Stops {
+				fmt.Fprintf(a.Out, "  %*d. %s\n", width, i+1, st.Name)
 			}
 		}
 	}
-	return nil
 }
 
 func containsStr(xs []string, x string) bool {

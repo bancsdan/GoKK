@@ -291,3 +291,49 @@ func TestLive(t *testing.T) {
 		t.Fatalf("unexpected output:\n%s", out.String())
 	}
 }
+
+func TestRunJSON(t *testing.T) {
+	f := &fakeFutar{now: time.Date(2026, 9, 12, 22, 30, 0, 0, time.UTC)}
+	a, out := newApp(t, f, "k3y")
+	ctx := context.Background()
+	if err := a.Run(ctx, Options{Route: "155", Query: "zugligeti", Count: 2, JSON: true}); err != nil {
+		t.Fatal(err)
+	}
+	var got ArrivalsJSON
+	if err := json.Unmarshal(out.Bytes(), &got); err != nil {
+		t.Fatalf("invalid JSON: %v\n%s", err, out.String())
+	}
+	if got.Stop != "Zugligeti út" || got.Route != "155" || len(got.StopIDs) != 2 || len(got.Directions) != 2 {
+		t.Fatalf("%+v", got)
+	}
+	d0 := got.Directions[0]
+	if d0.Headsign != "Zugliget" || len(d0.Departures) != 2 || d0.Departures[0].InSeconds != 192 || !d0.Departures[0].Live {
+		t.Fatalf("%+v", d0)
+	}
+	if d1 := got.Directions[1]; d1.Departures[0].Live || d1.Departures[0].InSeconds != 300 {
+		t.Fatalf("%+v", d1)
+	}
+
+	out.Reset()
+	if err := a.Run(ctx, Options{Route: "155", List: true, JSON: true}); err != nil {
+		t.Fatal(err)
+	}
+	var lists []RouteStops
+	if err := json.Unmarshal(out.Bytes(), &lists); err != nil {
+		t.Fatalf("invalid JSON: %v\n%s", err, out.String())
+	}
+	if len(lists) != 1 || lists[0].Route != "155" || len(lists[0].Directions) != 2 ||
+		lists[0].Directions[0].From != "Széll Kálmán tér M" || lists[0].Directions[0].To != "Zugliget" ||
+		len(lists[0].Directions[0].Stops) != 3 || lists[0].Directions[0].Stops[1].ID != "BKK_F02004" {
+		t.Fatalf("%+v", lists)
+	}
+
+	// No departures still yields valid JSON with an empty array.
+	out.Reset()
+	if err := a.Run(ctx, Options{Route: "155", Query: "libego", JSON: true}); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out.String(), `"directions": []`) {
+		t.Fatalf("%s", out.String())
+	}
+}
