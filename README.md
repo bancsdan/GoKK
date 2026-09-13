@@ -19,11 +19,11 @@ every direction in under a second. No app, no browser, no map.
 
 ## ✨ Why
 
-- ⚡ **Glanceable.** One line per direction, seconds to departure, nothing else.
-- 🔎 **Fuzzy stops.** `viranyos` finds *Virányos út*, `szell kalman` finds *Széll Kálmán tér M*. Accents optional.
-- 📡 **Live data.** Real-time predictions from the BKK FUTÁR feed; schedule-only entries are marked with `~`.
-- 🚀 **Fast.** Route and stop data is cached for a day, so after the first run only one network call is made.
-- 📦 **Zero dependencies.** Standard library only, single binary, `go install`-able.
+- **Glanceable.** One line per direction, seconds to departure, nothing else.
+- **Fuzzy stops.** `viranyos` finds *Virányos út*, `szell kalman` finds *Széll Kálmán tér M*. Accents optional.
+- **Live data.** Real-time predictions from the BKK FUTÁR feed; schedule-only entries are marked with `~`.
+- **Fast.** Route and stop data is cached for a day, so after the first run only one network call is made.
+- **Zero dependencies.** Standard library only, single binary, `go install`-able.
 
 ## 🏁 Quick start
 
