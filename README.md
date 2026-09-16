@@ -13,7 +13,7 @@ every direction in under a second. No app, no browser, no map.
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 [![Data: BKK FUTÁR](https://img.shields.io/badge/data-BKK%20FUT%C3%81R%20OpenData-1d5fa7)](https://opendata.bkk.hu)
 
-<img src="assets/demo.gif" alt="bkk demo: real-time departures for route 155 at Virányos út, grouped by direction" width="720">
+<img src="assets/demo.gif" alt="bkk demo: fuzzy stop lookup, departures with clock times, saving a lookup as an alias with --save, replaying it with bkk home, and JSON output piped to jq" width="720">
 
 </div>
 
@@ -25,7 +25,7 @@ every direction in under a second. No app, no browser, no map.
 - **Fuzzy stops.** `viranyos` finds *Virányos út*, `szell kalman` finds *Széll Kálmán tér M*. Accents optional.
 - **Live data.** Real-time predictions from the BKK FUTÁR feed; schedule-only entries are marked with `~`.
 - **Fast.** Route and stop data is cached for a day, so after the first run only one network call is made.
-- **Aliases.** `bkk home` expands to your usual route and stop; bare `bkk` runs your default.
+- **Aliases.** Add `--save home` to any lookup and `bkk home` repeats it; bare `bkk` runs your default.
 - **Scriptable.** `--json` for status bars, launchers and scripts.
 - **Zero dependencies.** Standard library only, single binary, `go install`-able.
 
@@ -34,7 +34,8 @@ every direction in under a second. No app, no browser, no map.
 ```sh
 go install github.com/bancsdan/GoKK/cmd/bkk@latest
 export BKK_API_KEY=your-key        # free key from https://opendata.bkk.hu
-bkk 155 viranyos -c 3
+bkk 155 viranyos -c 3 --save home  # look it up, and remember it as "home"
+bkk home                           # from now on
 ```
 
 ```
@@ -83,22 +84,24 @@ route you have already queried) work without a key.
 ## 🧭 Usage
 
 ```
-bkk <route> <stop-query> [-c N] [-t] [-j] [-r]
+bkk <route> <stop-query> [-c N] [-t] [-j] [-r] [-s NAME]
 bkk <route> -l [-j]
 bkk <alias> [flags]
 ```
 
-| Argument / flag   | Meaning                                                                 |
-|-------------------|-------------------------------------------------------------------------|
-| `<route>`         | Route short name as riders know it: `155`, `4`, `M2`, `9`, `7E`         |
-| `<stop-query>`    | Free-text stop name, accent-insensitive and fuzzy                       |
-| `-c`, `--count N` | Departures to show per direction (default 1)                            |
-| `-t`, `--times`   | Also print clock times: `5m42s (22:41)`                                 |
-| `-j`, `--json`    | Print JSON instead of text (see below)                                  |
-| `-l`, `--list`    | List the route's stops by direction instead of arrivals                 |
-| `-r`, `--refresh` | Ignore the cached route and stop data                                   |
-| `-a`, `--aliases` | Show the configured aliases                                             |
-| `-h`, `--help`    | Show help                                                               |
+| Argument / flag     | Meaning                                                                 |
+|---------------------|-------------------------------------------------------------------------|
+| `<route>`           | Route short name as riders know it: `155`, `4`, `M2`, `9`, `7E`         |
+| `<stop-query>`      | Free-text stop name, accent-insensitive and fuzzy                       |
+| `<alias>`           | A saved command, see [Aliases](#aliases)                                |
+| `-c`, `--count N`   | Departures to show per direction (default 1)                            |
+| `-t`, `--times`     | Also print clock times: `5m42s (22:41)`                                 |
+| `-j`, `--json`      | Print JSON instead of text (see below)                                  |
+| `-l`, `--list`      | List the route's stops by direction instead of arrivals                 |
+| `-r`, `--refresh`   | Ignore the cached route and stop data                                   |
+| `-s`, `--save NAME` | Run the command, then save it as alias `NAME`                           |
+| `-a`, `--aliases`   | Show the configured aliases                                             |
+| `-h`, `--help`      | Show help                                                               |
 
 Flags may appear anywhere: `bkk 155 viranyos -c 3` works.
 
@@ -183,20 +186,40 @@ coloured on a terminal and plain when piped or when `NO_COLOR` is set.
 
 ### Aliases
 
-Put your usual lookups in `~/.config/bkk/config` (or
-`$XDG_CONFIG_HOME/bkk/config`), one per line as `name = args`. Lines
-starting with `#` are comments.
+Once a lookup looks right, add `--save NAME` to remember it:
+
+```
+$ bkk 155 viranyos -c 3 -t --save home
+Virányos út
+155 → Fácános tér
+  3m12s (22:39)   7m0s (22:43)    16m30s (22:52)
+155 → Széll Kálmán tér M
+  ~5m0s (22:41)   12m24s (22:48)
+saved alias home = 155 viranyos -c 3 -t (~/.config/bkk/config)
+
+$ bkk home
+Virányos út
+...
+```
+
+The command runs first and is only saved if it succeeds, so a typo in the
+stop name never becomes an alias. Saving an existing name replaces it.
+`bkk -a` lists what is configured.
+
+Aliases are plain lines in `~/.config/bkk/config` (or
+`$XDG_CONFIG_HOME/bkk/config`), `name = args`, so you can also edit the
+file by hand. Lines starting with `#` are comments.
 
 ```ini
-home    = 155 viranyos -c 3
+home    = 155 viranyos -c 3 -t
 work    = 4 moricz
 default = home
 ```
 
-Then `bkk home` runs `bkk 155 viranyos -c 3`, and plain `bkk` runs the
-`default` alias. Flags after an alias override the alias's own, so
-`bkk home -c 1 -t` shows one departure with clock times. `bkk -a` lists
-what is configured.
+Plain `bkk` runs the `default` alias. Flags after an alias override the
+alias's own, so `bkk home -c 1` shows one departure. Saving from an alias
+records the expanded command: `bkk home -j --save home-json` stores
+`155 viranyos -c 3 -t -j`.
 
 ### JSON output
 
@@ -287,6 +310,10 @@ go test ./...                                             # offline, against a f
 BKK_API_KEY=... go test ./internal/app -run TestLive -v   # one real round-trip
 vhs demo.tape                                             # re-render assets/demo.gif
 ```
+
+The tape points `XDG_CONFIG_HOME` at a temporary directory, so recording
+it never touches your own aliases; it needs `bkk` on `PATH` and
+`BKK_API_KEY` in the environment.
 
 Standard library only; no third-party dependencies.
 

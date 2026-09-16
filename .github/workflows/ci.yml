@@ -66,6 +66,7 @@ jobs:
         run: |
           out=$(bkk 155 viranyos)
           echo "$out"
+          bkk 6 szell kalman
           if echo "$out" | grep -q "No upcoming"; then
             echo "live=false" >> "$GITHUB_OUTPUT"
             echo "::notice::No departures right now; keeping the existing GIF."

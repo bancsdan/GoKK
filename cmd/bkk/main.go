@@ -1,7 +1,7 @@
 // Command bkk prints the next real-time departures of a Budapest (BKK)
 // transit route at a fuzzy-matched stop.
 //
-//	bkk <route> <stop-query> [-c N] [-t] [-j] [-r]
+//	bkk <route> <stop-query> [-c N] [-t] [-j] [-r] [-s NAME]
 //	bkk <route> -l
 //	bkk <alias> [flags]
 package main
@@ -26,7 +26,7 @@ import (
 const (
 	cacheTTL = 24 * time.Hour
 	timeout  = 10 * time.Second
-	usage    = `usage: bkk <route> <stop-query> [-c N] [-t] [-j] [-r]
+	usage    = `usage: bkk <route> <stop-query> [-c N] [-t] [-j] [-r] [-s NAME]
        bkk <route> -l [-j]
        bkk <alias> [flags]
 
@@ -35,15 +35,16 @@ Print the next departures of a BKK route at a stop, grouped by direction.
   <route>       route short name as riders know it: 155, 4, M2, 9, 7E
   <stop-query>  free-text stop name; accent-insensitive and fuzzy
                 ("viranyos" matches "Virányos út")
-  <alias>       a name from the config file (see -a)
+  <alias>       a name from the config file (see -a and -s)
 
-  -c, --count N   departures to show per direction (default 1)
-  -t, --times     also print clock times, e.g. 5m42s (22:41)
-  -j, --json      print JSON instead of text
-  -l, --list      list the route's stops by direction instead of arrivals
-  -r, --refresh   ignore the route/stop cache (~/.cache/bkk)
-  -a, --aliases   show the configured aliases and exit
-  -h, --help      show this help
+  -c, --count N     departures to show per direction (default 1)
+  -t, --times       also print clock times, e.g. 5m42s (22:41)
+  -j, --json        print JSON instead of text
+  -l, --list        list the route's stops by direction instead of arrivals
+  -r, --refresh     ignore the route/stop cache (~/.cache/bkk)
+  -s, --save NAME   run, then save this command as alias NAME
+  -a, --aliases     show the configured aliases and exit
+  -h, --help        show this help
 
 Times are real-time predictions; ~ marks schedule-only entries.
 Set BKK_API_KEY (free key: https://opendata.bkk.hu) or put the key in
@@ -54,7 +55,9 @@ per line as "name = args"; "default" is used when bkk runs with no args:
 
   home    = 155 viranyos -c 3
   work    = 4 moricz
-  default = home`
+  default = home
+
+"bkk 155 viranyos -c 3 --save home" writes the first line for you.`
 )
 
 func main() {
@@ -74,7 +77,11 @@ func run(args []string) error {
 	if aliasErr != nil {
 		return aliasErr
 	}
-	opts, err := parseArgs(args, aliases)
+	args, saveAs, err := splitSave(args)
+	if err != nil {
+		return err
+	}
+	opts, expanded, err := parseArgs(args, aliases)
 	if err != nil {
 		return err
 	}
@@ -96,38 +103,91 @@ func run(args []string) error {
 	if errors.Is(err, futar.ErrNoKey) {
 		return keyErr
 	}
-	return err
+	if err != nil || saveAs == "" {
+		return err
+	}
+	// Only a command that worked is worth remembering, so a typo in the
+	// stop name or an unknown route never ends up in the config.
+	val := strings.Join(expanded, " ")
+	path := configFile()
+	if err := saveAlias(path, saveAs, val); err != nil {
+		return err
+	}
+	fmt.Fprintf(os.Stderr, "saved alias %s = %s (%s)\n", saveAs, val, tildePath(path))
+	return nil
+}
+
+// tildePath shortens a path under the home directory to ~/... for display.
+func tildePath(path string) string {
+	home, err := os.UserHomeDir()
+	if err != nil || home == "" {
+		return path
+	}
+	if rel, err := filepath.Rel(home, path); err == nil && !strings.HasPrefix(rel, "..") {
+		return filepath.Join("~", rel)
+	}
+	return path
+}
+
+// splitSave removes "-s NAME", "--save NAME" and "--save=NAME" from args
+// and returns the alias name, or "" when the flag is absent. It runs before
+// alias expansion so the flag is never mistaken for part of a command.
+func splitSave(args []string) (rest []string, name string, err error) {
+	rest = make([]string, 0, len(args))
+	for i := 0; i < len(args); i++ {
+		flag, val, hasVal := strings.Cut(args[i], "=")
+		if flag != "-s" && flag != "--save" {
+			rest = append(rest, args[i])
+			continue
+		}
+		if !hasVal {
+			if i+1 >= len(args) {
+				return nil, "", &app.UsageError{Msg: flag + " needs an alias name\n" + usage}
+			}
+			i++
+			val = args[i]
+		}
+		if val == "" || strings.HasPrefix(val, "-") || strings.ContainsAny(val, " \t=") {
+			return nil, "", &app.UsageError{Msg: fmt.Sprintf("%s: %q is not a valid alias name", flag, val)}
+		}
+		name = val
+	}
+	return rest, name, nil
 }
 
 // parseArgs accepts flags anywhere among the positionals so that
 // "bkk 155 viranyos -c 3" works. If the first positional is an alias it is
 // replaced by the alias's arguments; with no positionals at all the
-// "default" alias is used. A nil result means help or -a was handled.
-func parseArgs(args []string, aliases map[string]string) (*app.Options, error) {
+// "default" alias is used. The second result is the argument list after
+// alias expansion, which is what --save records. A nil Options means help
+// or -a was handled.
+func parseArgs(args []string, aliases map[string]string) (*app.Options, []string, error) {
 	o, pos, err := parseOnce(args)
 	if err != nil || o == nil {
-		return o, err
+		return o, nil, err
 	}
+	expanded := args
 	switch {
 	case len(pos) > 0 && aliases[pos[0]] != "":
-		expanded := append(strings.Fields(aliases[pos[0]]), removeFirst(args, pos[0])...)
+		expanded = append(strings.Fields(aliases[pos[0]]), removeFirst(args, pos[0])...)
 		o, pos, err = parseOnce(expanded)
 	case len(pos) == 0 && aliases["default"] != "":
 		def := aliases["default"]
 		if aliases[def] != "" { // "default = home"
 			def = aliases[def]
 		}
-		o, pos, err = parseOnce(append(strings.Fields(def), args...))
+		expanded = append(strings.Fields(def), args...)
+		o, pos, err = parseOnce(expanded)
 	}
 	if err != nil || o == nil {
-		return o, err
+		return o, nil, err
 	}
 	if len(pos) == 0 || (len(pos) < 2 && !o.List) {
-		return nil, &app.UsageError{Msg: usage}
+		return nil, nil, &app.UsageError{Msg: usage}
 	}
 	o.Route = pos[0]
 	o.Query = strings.Join(pos[1:], " ")
-	return o, nil
+	return o, expanded, nil
 }
 
 // parseOnce tokenizes one argument list into options and positionals
@@ -216,6 +276,41 @@ func loadAliases(path string) (map[string]string, error) {
 	return aliases, sc.Err()
 }
 
+// saveAlias writes "name = val" to the config file, replacing an existing
+// line for name in place and otherwise appending. Comments, blank lines and
+// other aliases are kept as they are; a missing file or directory is created.
+func saveAlias(path, name, val string) error {
+	var lines []string
+	if b, err := os.ReadFile(path); err == nil {
+		lines = strings.Split(strings.TrimRight(string(b), "\n"), "\n")
+		if len(lines) == 1 && lines[0] == "" {
+			lines = nil
+		}
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return fmt.Errorf("config %s: %v", path, err)
+	}
+	entry := name + " = " + val
+	replaced := false
+	for i, line := range lines {
+		n, _, ok := strings.Cut(strings.TrimSpace(line), "=")
+		if ok && !strings.HasPrefix(strings.TrimSpace(line), "#") && strings.TrimSpace(n) == name {
+			lines[i] = entry
+			replaced = true
+			break
+		}
+	}
+	if !replaced {
+		lines = append(lines, entry)
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		return fmt.Errorf("config %s: %v", path, err)
+	}
+	if err := os.WriteFile(path, []byte(strings.Join(lines, "\n")+"\n"), 0o600); err != nil {
+		return fmt.Errorf("config %s: %v", path, err)
+	}
+	return nil
+}
+
 func printAliases() {
 	path := configFile()
 	aliases, err := loadAliases(path)
@@ -224,7 +319,7 @@ func printAliases() {
 		return
 	}
 	if len(aliases) == 0 {
-		fmt.Printf("no aliases; add lines like \"home = 155 viranyos -c 3\" to %s\n", path)
+		fmt.Printf("no aliases; run a lookup with --save NAME, or add lines like \"home = 155 viranyos -c 3\" to %s\n", path)
 		return
 	}
 	names := make([]string, 0, len(aliases))
