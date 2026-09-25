@@ -19,13 +19,15 @@ import (
 
 // Options are the per-invocation settings.
 type Options struct {
-	Route     string // public short name, e.g. "155"
-	Query     string // fuzzy stop query
-	Count     int    // arrivals per direction
-	ShowClock bool   // append HH:MM after each minutes value
-	Refresh   bool   // bypass the reference-data cache
-	List      bool   // list the route's stops instead of arrivals
-	JSON      bool   // machine-readable output instead of text
+	Route     string   // public short name, e.g. "155"
+	Query     string   // fuzzy stop query
+	Count     int      // arrivals per direction
+	ShowClock bool     // append HH:MM after each minutes value
+	Refresh   bool     // bypass the reference-data cache
+	List      bool     // list the route's stops instead of arrivals
+	JSON      bool     // machine-readable output instead of text
+	Headings  []string // fuzzy headsign queries; keep only these directions
+	Excludes  []string // fuzzy headsign queries; drop these directions
 	Window    time.Duration
 }
 
@@ -66,11 +68,11 @@ func (a *App) Run(ctx context.Context, o Options) error {
 		a.renderLists(lists)
 		return nil
 	}
-	stops, dirHeadsigns, err := a.routeStops(ctx, routes, o.Refresh)
+	rs, err := a.routeStops(ctx, routes, o.Refresh)
 	if err != nil {
 		return err
 	}
-	cand, err := pickStop(o.Route, o.Query, stops)
+	cand, err := pickStop(o.Route, o.Query, rs.stops)
 	if err != nil {
 		return err
 	}
@@ -82,10 +84,16 @@ func (a *App) Run(ctx context.Context, o Options) error {
 	if err != nil {
 		return err
 	}
-	groups := groupArrivals(arr, cand.IDs, routeIDs, dirHeadsigns, o.Count)
+	groups := groupArrivals(arr, cand.IDs, routeIDs, rs.dirHeadsigns, o.Count)
 	label := routes[0].ShortName
 	if label == "" {
 		label = o.Route
+	}
+	if len(o.Headings) > 0 || len(o.Excludes) > 0 {
+		groups, err = filterHeadings(groups, headingsAt(cand, rs.stopHeadsigns, groups), label, cand.Name, o)
+		if err != nil {
+			return err
+		}
 	}
 	if o.JSON {
 		return a.writeJSON(arrivalsJSON(cand, label, arr.CurrentTime, groups))
@@ -132,23 +140,35 @@ func (a *App) resolveRoutes(ctx context.Context, short string, refresh bool) ([]
 	return routes, nil
 }
 
-// routeStops returns every platform served by the routes (in travel order,
-// direction 0 first) and a directionId → headsign fallback map. Cached per
-// route ID.
-func (a *App) routeStops(ctx context.Context, routes []futar.Route, refresh bool) ([]match.Stop, map[string]string, error) {
+// routeData is what routeStops gathers from the route details.
+type routeData struct {
+	stops         []match.Stop        // every platform, travel order, direction 0 first
+	dirHeadsigns  map[string]string   // directionId → headsign fallback
+	stopHeadsigns map[string][]string // stop ID → headsigns of variants departing from it
+}
+
+// routeStops collects the platforms and headsigns served by the routes.
+// Cached per route ID.
+func (a *App) routeStops(ctx context.Context, routes []futar.Route, refresh bool) (*routeData, error) {
 	var stops []match.Stop
 	seen := map[string]bool{}
 	headsigns := map[string]string{}
+	stopHeadsigns := map[string][]string{}
 	for _, r := range routes {
 		rd, err := a.details(ctx, r, refresh)
 		if err != nil {
-			return nil, nil, err
+			return nil, err
 		}
 		for _, v := range rd.Variants {
 			if _, ok := headsigns[v.Direction]; !ok && v.Headsign != "" {
 				headsigns[v.Direction] = v.Headsign
 			}
-			for _, id := range v.StopIDs {
+			for i, id := range v.StopIDs {
+				// A variant's last stop is where it terminates, not a heading
+				// anyone can board toward.
+				if v.Headsign != "" && i < len(v.StopIDs)-1 && !containsStr(stopHeadsigns[id], v.Headsign) {
+					stopHeadsigns[id] = append(stopHeadsigns[id], v.Headsign)
+				}
 				if seen[id] {
 					continue
 				}
@@ -162,9 +182,9 @@ func (a *App) routeStops(ctx context.Context, routes []futar.Route, refresh bool
 		}
 	}
 	if len(stops) == 0 {
-		return nil, nil, &UsageError{fmt.Sprintf("route %s has no stops in the timetable", routes[0].ShortName)}
+		return nil, &UsageError{fmt.Sprintf("route %s has no stops in the timetable", routes[0].ShortName)}
 	}
-	return stops, headsigns, nil
+	return &routeData{stops: stops, dirHeadsigns: headsigns, stopHeadsigns: stopHeadsigns}, nil
 }
 
 // details returns a route's variants (sorted direction 0 first) and stops,
@@ -330,6 +350,78 @@ func pickStop(route, query string, stops []match.Stop) (match.Candidate, error) 
 		}
 		return match.Candidate{}, &UsageError{strings.TrimRight(sb.String(), "\n")}
 	}
+}
+
+// headingsAt lists the headsigns departing from the candidate's platforms:
+// those of the timetable variants, then any extra ones seen in live data.
+func headingsAt(cand match.Candidate, stopHeadsigns map[string][]string, groups []Group) []string {
+	var out []string
+	for _, id := range cand.IDs {
+		out = append(out, stopHeadsigns[id]...)
+	}
+	for _, g := range groups {
+		out = append(out, g.Headsign)
+	}
+	return out
+}
+
+// filterHeadings keeps the groups whose headsign matches one of o.Headings
+// (all groups when there are none) and drops those matching o.Excludes.
+// Each query is matched like a stop query against the headings, and must
+// pick exactly one of them.
+func filterHeadings(groups []Group, headings []string, route, stopName string, o Options) ([]Group, error) {
+	var hs []match.Stop
+	for _, h := range headings {
+		hs = append(hs, match.Stop{ID: match.Normalize(h), Name: h})
+	}
+	resolve := func(flag string, queries []string) (map[string]bool, error) {
+		set := map[string]bool{}
+		for _, q := range queries {
+			c, err := pickHeading(flag, q, route, stopName, hs)
+			if err != nil {
+				return nil, err
+			}
+			set[match.Normalize(c.Name)] = true
+		}
+		return set, nil
+	}
+	keep, err := resolve("--heading", o.Headings)
+	if err != nil {
+		return nil, err
+	}
+	drop, err := resolve("--not-heading", o.Excludes)
+	if err != nil {
+		return nil, err
+	}
+	var out []Group
+	for _, g := range groups {
+		h := match.Normalize(g.Headsign)
+		if (len(keep) == 0 || keep[h]) && !drop[h] {
+			out = append(out, g)
+		}
+	}
+	return out, nil
+}
+
+// pickHeading fuzzy-matches query against the headings the way pickStop
+// matches stops, insisting on exactly one distinct headsign.
+func pickHeading(flag, query, route, stopName string, headings []match.Stop) (match.Candidate, error) {
+	cands := match.Find(query, headings)
+	if len(cands) == 1 {
+		return cands[0], nil
+	}
+	var sb strings.Builder
+	list := cands
+	if len(cands) == 0 {
+		fmt.Fprintf(&sb, "%s: no heading matching %q for route %s at %s. Headings from this stop:\n", flag, query, route, stopName)
+		list = match.Group(headings)
+	} else {
+		fmt.Fprintf(&sb, "%s: %q matches several headings for route %s at %s; be more specific:\n", flag, query, route, stopName)
+	}
+	for _, c := range list {
+		sb.WriteString("  " + c.Name + "\n")
+	}
+	return match.Candidate{}, &UsageError{strings.TrimRight(sb.String(), "\n")}
 }
 
 // Arrival is one upcoming departure.
