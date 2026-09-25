@@ -26,6 +26,7 @@ func TestParseArgs(t *testing.T) {
 		{[]string{"h5", "aquincum", "-H"}, nil, true},
 		{[]string{"h5", "aquincum", "-X="}, nil, true},
 		{[]string{"-h"}, nil, false},
+		{[]string{"--version"}, nil, false},
 		{[]string{}, nil, true},
 		{[]string{"-l"}, nil, true},
 		{[]string{"155"}, nil, true},
@@ -188,5 +189,17 @@ func TestSaveAlias(t *testing.T) {
 	want := map[string]string{"home": "155 viranyos -c 3 -t", "work": "4 moricz", "default": "home"}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("round trip: %v", got)
+	}
+}
+
+func TestVersionString(t *testing.T) {
+	defer func(v, c, d string) { version, commit, date = v, c, d }(version, commit, date)
+	version, commit, date = "dev", "", ""
+	if got := versionString(); got != "bkk dev" {
+		t.Errorf("dev: %q", got)
+	}
+	version, commit, date = "1.2.0", "abc1234", "2026-09-25"
+	if got := versionString(); got != "bkk 1.2.0 (abc1234, 2026-09-25)" {
+		t.Errorf("release: %q", got)
 	}
 }

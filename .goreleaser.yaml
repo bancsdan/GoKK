@@ -1,0 +1,89 @@
+# GoReleaser configuration: https://goreleaser.com
+# Release with: git tag v0.1.0 && git push --tags  (see .github/workflows/release.yml)
+version: 2
+
+project_name: bkk
+
+before:
+  hooks:
+    - go mod tidy
+    - go test ./...
+
+builds:
+  - id: bkk
+    main: ./cmd/bkk
+    binary: bkk
+    env:
+      - CGO_ENABLED=0
+    goos: [darwin, linux, windows]
+    goarch: [amd64, arm64]
+    mod_timestamp: "{{ .CommitTimestamp }}"
+    flags: [-trimpath]
+    ldflags:
+      - -s -w
+      - -X main.version={{ .Version }}
+      - -X main.commit={{ .ShortCommit }}
+      - -X main.date={{ .CommitDate }}
+
+archives:
+  - id: default
+    formats: [tar.gz]
+    name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    format_overrides:
+      - goos: windows
+        formats: [zip]
+    files:
+      - LICENSE
+      - README.md
+
+checksum:
+  name_template: checksums.txt
+
+changelog:
+  use: github
+  sort: asc
+  groups:
+    - title: Features
+      regexp: '^feat(\(.*\))?!?:'
+      order: 0
+    - title: Fixes
+      regexp: '^fix(\(.*\))?!?:'
+      order: 1
+    - title: Other
+      order: 999
+  filters:
+    exclude:
+      - '^docs'
+      - '^test'
+      - '^chore'
+      - '^ci'
+      - '^style'
+
+release:
+  github:
+    owner: bancsdan
+    name: GoKK
+  draft: false
+  prerelease: auto
+
+# Publishes a cask to github.com/bancsdan/homebrew-tap so that
+#   brew install bancsdan/tap/bkk
+# works. Needs the HOMEBREW_TAP_GITHUB_TOKEN secret (a token with write access
+# to that repository). The post-install hook clears macOS quarantine, since the
+# binaries are not notarized.
+homebrew_casks:
+  - name: bkk
+    repository:
+      owner: bancsdan
+      name: homebrew-tap
+      token: "{{ .Env.HOMEBREW_TAP_GITHUB_TOKEN }}"
+    directory: Casks
+    homepage: https://github.com/bancsdan/GoKK
+    description: "Next real-time BKK (Budapest) departures at a stop, from your terminal"
+    license: MIT
+    hooks:
+      post:
+        install: |
+          if system_command("/usr/bin/xattr", args: ["-h"]).exit_status == 0
+            system_command "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", "#{staged_path}/bkk"]
+          end

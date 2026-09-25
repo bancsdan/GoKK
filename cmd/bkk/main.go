@@ -49,6 +49,7 @@ Print the next departures of a BKK route at a stop, grouped by direction.
   -s, --save NAME   run, then save this command as alias NAME
   -a, --aliases     show the configured aliases and exit
   -h, --help        show this help
+      --version     print the version and exit
 
 Times are real-time predictions; ~ marks schedule-only entries.
 Set BKK_API_KEY (free key: https://opendata.bkk.hu) or put the key in
@@ -63,6 +64,25 @@ per line as "name = args"; "default" is used when bkk runs with no args:
 
 "bkk 155 viranyos -c 3 --save home" writes the first line for you.`
 )
+
+// Set by GoReleaser through -ldflags "-X main.version=..."; "dev" for local builds.
+var (
+	version = "dev"
+	commit  = ""
+	date    = ""
+)
+
+func versionString() string {
+	s := "bkk " + version
+	if commit != "" {
+		s += " (" + commit
+		if date != "" {
+			s += ", " + date
+		}
+		s += ")"
+	}
+	return s
+}
 
 func main() {
 	if err := run(os.Args[1:]); err != nil {
@@ -205,6 +225,9 @@ func parseOnce(args []string) (*app.Options, []string, error) {
 		switch name {
 		case "-h", "--help":
 			fmt.Println(usage)
+			return nil, nil, nil
+		case "--version":
+			fmt.Println(versionString())
 			return nil, nil, nil
 		case "-a", "--aliases":
 			printAliases()

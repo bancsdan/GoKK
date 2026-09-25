@@ -52,7 +52,15 @@ it is due.
 
 ## 📥 Install
 
-Requires Go 1.22+.
+Homebrew (macOS and Linux):
+
+```sh
+brew install bancsdan/tap/bkk
+```
+
+Prebuilt binaries for macOS, Linux and Windows are attached to every
+[GitHub release](https://github.com/bancsdan/GoKK/releases). With Go 1.22+
+installed:
 
 ```sh
 go install github.com/bancsdan/GoKK/cmd/bkk@latest
@@ -65,6 +73,8 @@ go build -o bkk ./cmd/bkk
 ```
 
 The result is a single binary with no third-party or runtime dependencies.
+`bkk --version` prints the version, commit and build date of the binary you
+have.
 
 ## 🔑 API key
 
