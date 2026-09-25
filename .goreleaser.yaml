@@ -65,6 +65,9 @@ release:
     name: GoKK
   draft: false
   prerelease: auto
+  # A re-run of a failed workflow must not trip over the assets the first
+  # attempt already uploaded.
+  replace_existing_artifacts: true
 
 # Publishes a cask to github.com/bancsdan/homebrew-tap so that
 #   brew install bancsdan/tap/bkk
