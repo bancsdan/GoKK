@@ -1,7 +1,7 @@
 // Command bkk prints the next real-time departures of a Budapest (BKK)
 // transit route at a fuzzy-matched stop.
 //
-//	bkk <route> <stop-query> [-c N] [-t] [-j] [-r] [-s NAME]
+//	bkk <route> <stop-query> [-c N] [-H Q] [-X Q] [-t] [-j] [-r] [-s NAME]
 //	bkk <route> -l
 //	bkk <alias> [flags]
 package main
@@ -26,7 +26,7 @@ import (
 const (
 	cacheTTL = 24 * time.Hour
 	timeout  = 10 * time.Second
-	usage    = `usage: bkk <route> <stop-query> [-c N] [-t] [-j] [-r] [-s NAME]
+	usage    = `usage: bkk <route> <stop-query> [-c N] [-H Q] [-X Q] [-t] [-j] [-r] [-s NAME]
        bkk <route> -l [-j]
        bkk <alias> [flags]
 
@@ -38,6 +38,10 @@ Print the next departures of a BKK route at a stop, grouped by direction.
   <alias>       a name from the config file (see -a and -s)
 
   -c, --count N     departures to show per direction (default 1)
+  -H, --heading Q   only show departures toward headsign Q (fuzzy, like
+                    <stop-query>); repeat to allow several
+  -X, --not-heading Q
+                    hide departures toward headsign Q; repeatable
   -t, --times       also print clock times, e.g. 5m42s (22:41)
   -j, --json        print JSON instead of text
   -l, --list        list the route's stops by direction instead of arrivals
@@ -108,7 +112,7 @@ func run(args []string) error {
 	}
 	// Only a command that worked is worth remembering, so a typo in the
 	// stop name or an unknown route never ends up in the config.
-	val := strings.Join(expanded, " ")
+	val := joinArgs(expanded)
 	path := configFile()
 	if err := saveAlias(path, saveAs, val); err != nil {
 		return err
@@ -169,14 +173,14 @@ func parseArgs(args []string, aliases map[string]string) (*app.Options, []string
 	expanded := args
 	switch {
 	case len(pos) > 0 && aliases[pos[0]] != "":
-		expanded = append(strings.Fields(aliases[pos[0]]), removeFirst(args, pos[0])...)
+		expanded = append(splitArgs(aliases[pos[0]]), removeFirst(args, pos[0])...)
 		o, pos, err = parseOnce(expanded)
 	case len(pos) == 0 && aliases["default"] != "":
 		def := aliases["default"]
 		if aliases[def] != "" { // "default = home"
 			def = aliases[def]
 		}
-		expanded = append(strings.Fields(def), args...)
+		expanded = append(splitArgs(def), args...)
 		o, pos, err = parseOnce(expanded)
 	}
 	if err != nil || o == nil {
@@ -226,6 +230,22 @@ func parseOnce(args []string) (*app.Options, []string, error) {
 				return nil, nil, &app.UsageError{Msg: fmt.Sprintf("-c: %q is not a positive number", val)}
 			}
 			o.Count = n
+		case "-H", "--heading", "-X", "--not-heading":
+			if !hasVal {
+				if i+1 >= len(args) {
+					return nil, nil, &app.UsageError{Msg: name + " needs a headsign\n" + usage}
+				}
+				i++
+				val = args[i]
+			}
+			if strings.TrimSpace(val) == "" {
+				return nil, nil, &app.UsageError{Msg: name + " needs a headsign\n" + usage}
+			}
+			if name == "-H" || name == "--heading" {
+				o.Headings = append(o.Headings, val)
+			} else {
+				o.Excludes = append(o.Excludes, val)
+			}
 		default:
 			if strings.HasPrefix(arg, "-") && len(arg) > 1 {
 				return nil, nil, &app.UsageError{Msg: fmt.Sprintf("unknown flag %s\n%s", arg, usage)}
@@ -234,6 +254,46 @@ func parseOnce(args []string) (*app.Options, []string, error) {
 		}
 	}
 	return o, pos, nil
+}
+
+// splitArgs splits an alias value on whitespace, keeping double-quoted runs
+// together so a saved "-H \"batthyany ter\"" stays one argument.
+func splitArgs(s string) []string {
+	var out []string
+	var cur strings.Builder
+	inQuote, have := false, false
+	for _, r := range s {
+		switch {
+		case r == '"':
+			inQuote = !inQuote
+			have = true
+		case !inQuote && (r == ' ' || r == '\t'):
+			if have {
+				out = append(out, cur.String())
+				cur.Reset()
+				have = false
+			}
+		default:
+			cur.WriteRune(r)
+			have = true
+		}
+	}
+	if have {
+		out = append(out, cur.String())
+	}
+	return out
+}
+
+// joinArgs is the inverse of splitArgs: arguments with whitespace are quoted.
+func joinArgs(args []string) string {
+	parts := make([]string, len(args))
+	for i, a := range args {
+		if strings.ContainsAny(a, " \t") {
+			a = `"` + a + `"`
+		}
+		parts[i] = a
+	}
+	return strings.Join(parts, " ")
 }
 
 func removeFirst(args []string, tok string) []string {

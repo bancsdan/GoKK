@@ -21,6 +21,10 @@ func TestParseArgs(t *testing.T) {
 		{[]string{"--count", "4", "4", "moricz"}, &app.Options{Route: "4", Query: "moricz", Count: 4}, false},
 		{[]string{"155", "-l"}, &app.Options{Route: "155", Count: 1, List: true}, false},
 		{[]string{"--list", "155", "x", "--json"}, &app.Options{Route: "155", Query: "x", Count: 1, List: true, JSON: true}, false},
+		{[]string{"h5", "aquincum", "-H", "szentendre", "--heading=bekas"}, &app.Options{Route: "h5", Query: "aquincum", Count: 1, Headings: []string{"szentendre", "bekas"}}, false},
+		{[]string{"h5", "aquincum", "-X", "batthyany ter", "--not-heading", "x"}, &app.Options{Route: "h5", Query: "aquincum", Count: 1, Excludes: []string{"batthyany ter", "x"}}, false},
+		{[]string{"h5", "aquincum", "-H"}, nil, true},
+		{[]string{"h5", "aquincum", "-X="}, nil, true},
 		{[]string{"-h"}, nil, false},
 		{[]string{}, nil, true},
 		{[]string{"-l"}, nil, true},
@@ -45,7 +49,7 @@ func TestParseArgs(t *testing.T) {
 }
 
 func TestParseArgsAliases(t *testing.T) {
-	aliases := map[string]string{"home": "155 viranyos -c 3", "work": "4 moricz", "default": "home"}
+	aliases := map[string]string{"home": "155 viranyos -c 3", "work": "4 moricz", "default": "home", "hev": `h5 aquincum -X "batthyany ter"`}
 	cases := []struct {
 		args     []string
 		want     *app.Options
@@ -58,6 +62,7 @@ func TestParseArgsAliases(t *testing.T) {
 		{[]string{"-t"}, &app.Options{Route: "155", Query: "viranyos", Count: 3, ShowClock: true}, []string{"155", "viranyos", "-c", "3", "-t"}},
 		{[]string{"work", "-l"}, &app.Options{Route: "4", Query: "moricz", Count: 1, List: true}, []string{"4", "moricz", "-l"}},
 		{[]string{"155", "home"}, &app.Options{Route: "155", Query: "home", Count: 1}, []string{"155", "home"}}, // only the first positional expands
+		{[]string{"hev"}, &app.Options{Route: "h5", Query: "aquincum", Count: 1, Excludes: []string{"batthyany ter"}}, []string{"h5", "aquincum", "-X", "batthyany ter"}},
 	}
 	for _, c := range cases {
 		got, expanded, err := parseArgs(c.args, aliases)
@@ -71,6 +76,20 @@ func TestParseArgsAliases(t *testing.T) {
 		if !reflect.DeepEqual(expanded, c.expanded) {
 			t.Errorf("%v: expanded = %v, want %v", c.args, expanded, c.expanded)
 		}
+	}
+}
+
+func TestJoinSplitArgs(t *testing.T) {
+	args := []string{"h5", "aquincum", "-X", "batthyany ter", "--heading=pomaz x", "-t"}
+	joined := joinArgs(args)
+	if want := `h5 aquincum -X "batthyany ter" "--heading=pomaz x" -t`; joined != want {
+		t.Errorf("joinArgs = %q, want %q", joined, want)
+	}
+	if got := splitArgs(joined); !reflect.DeepEqual(got, args) {
+		t.Errorf("splitArgs(%q) = %q, want %q", joined, got, args)
+	}
+	if got := splitArgs("  155\tviranyos   -c 3 "); !reflect.DeepEqual(got, []string{"155", "viranyos", "-c", "3"}) {
+		t.Errorf("splitArgs whitespace = %q", got)
 	}
 }
 

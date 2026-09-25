@@ -84,7 +84,7 @@ route you have already queried) work without a key.
 ## 🧭 Usage
 
 ```
-bkk <route> <stop-query> [-c N] [-t] [-j] [-r] [-s NAME]
+bkk <route> <stop-query> [-c N] [-H Q] [-X Q] [-t] [-j] [-r] [-s NAME]
 bkk <route> -l [-j]
 bkk <alias> [flags]
 ```
@@ -95,6 +95,8 @@ bkk <alias> [flags]
 | `<stop-query>`      | Free-text stop name, accent-insensitive and fuzzy                       |
 | `<alias>`           | A saved command, see [Aliases](#aliases)                                |
 | `-c`, `--count N`   | Departures to show per direction (default 1)                            |
+| `-H`, `--heading Q` | Only show departures toward headsign `Q`; fuzzy, repeatable             |
+| `-X`, `--not-heading Q` | Hide departures toward headsign `Q`; fuzzy, repeatable              |
 | `-t`, `--times`     | Also print clock times: `5m42s (22:41)`                                 |
 | `-j`, `--json`      | Print JSON instead of text (see below)                                  |
 | `-l`, `--list`      | List the route's stops by direction instead of arrivals                 |
@@ -130,6 +132,22 @@ Móricz Zsigmond körtér M
   2m5s (22:41)   9m40s (22:48)
 4 → Újbuda-központ M
   now (22:39)    6m18s (22:45)
+```
+</details>
+
+<details>
+<summary><b>Only some headings</b></summary>
+
+A line can have several termini in the same direction. `-H` keeps the
+headsigns you name and `-X` drops them. Both match like stop queries.
+
+```
+$ bkk h5 aquincum -X batthyany
+Aquincum
+H5 → Békásmegyer
+  9m55s
+H5 → Szentendre
+  ~17m55s
 ```
 </details>
 

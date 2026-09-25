@@ -337,3 +337,58 @@ func TestRunJSON(t *testing.T) {
 		t.Fatalf("%s", out.String())
 	}
 }
+
+func TestRunHeadings(t *testing.T) {
+	f := &fakeFutar{now: time.Date(2026, 9, 12, 22, 30, 0, 0, time.UTC)}
+	a, out := newApp(t, f, "k3y")
+	ctx := context.Background()
+	cases := []struct {
+		opts Options
+		want []string // headsigns in the output
+	}{
+		{Options{Route: "155", Query: "zugligeti", Headings: []string{"szell"}}, []string{"Széll Kálmán tér M"}},
+		{Options{Route: "155", Query: "zugligeti", Headings: []string{"Zugligt"}}, []string{"Zugliget"}}, // fuzzy
+		{Options{Route: "155", Query: "zugligeti", Excludes: []string{"zugliget"}}, []string{"Széll Kálmán tér M"}},
+		{Options{Route: "155", Query: "zugligeti", Headings: []string{"szell", "zugliget"}}, []string{"Zugliget", "Széll Kálmán tér M"}},
+		{Options{Route: "155", Query: "zugligeti", Headings: []string{"szell"}, Excludes: []string{"szell"}}, nil},
+	}
+	for _, c := range cases {
+		out.Reset()
+		if err := a.Run(ctx, c.opts); err != nil {
+			t.Fatalf("%+v: %v", c.opts, err)
+		}
+		var got []string
+		for _, line := range strings.Split(out.String(), "\n") {
+			if h, ok := strings.CutPrefix(line, "155 → "); ok {
+				got = append(got, h)
+			}
+		}
+		if strings.Join(got, "|") != strings.Join(c.want, "|") {
+			t.Errorf("%+v: headings %q, want %q\n%s", c.opts, got, c.want, out.String())
+		}
+	}
+}
+
+func TestRunHeadingErrors(t *testing.T) {
+	f := &fakeFutar{now: time.Now()}
+	a, _ := newApp(t, f, "k3y")
+	ctx := context.Background()
+	cases := []struct {
+		opts Options
+		want string
+	}{
+		{Options{Route: "155", Query: "zugligeti", Headings: []string{"qqqqqq"}},
+			`--heading: no heading matching "qqqqqq" for route 155 at Zugligeti út. Headings from this stop:` + "\n  Zugliget\n  Széll Kálmán tér M"},
+		{Options{Route: "155", Query: "zugligeti", Excludes: []string{"l"}},
+			`--not-heading: "l" matches several headings for route 155 at Zugligeti út; be more specific:` + "\n  Zugliget\n  Széll Kálmán tér M"},
+	}
+	for _, c := range cases {
+		err := a.Run(ctx, c.opts)
+		if err == nil || err.Error() != c.want {
+			t.Errorf("%+v:\n got %q\nwant %q", c.opts, err, c.want)
+		}
+		if _, ok := err.(*UsageError); !ok {
+			t.Errorf("%+v: want UsageError, got %T", c.opts, err)
+		}
+	}
+}
